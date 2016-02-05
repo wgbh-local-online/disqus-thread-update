@@ -1,0 +1,48 @@
+PATH
+  remote: /Users/tim_kinnel/Development/ruby/disqus_api
+  specs:
+    disqus_api (0.0.4)
+      activesupport (>= 3.0.0)
+      faraday (~> 0.8.9)
+      faraday_middleware (~> 0.9.0)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    activesupport (4.2.5.1)
+      i18n (~> 0.7)
+      json (~> 1.7, >= 1.7.7)
+      minitest (~> 5.1)
+      thread_safe (~> 0.3, >= 0.3.4)
+      tzinfo (~> 1.1)
+    coderay (1.1.0)
+    faraday (0.8.11)
+      multipart-post (~> 1.2.0)
+    faraday_middleware (0.9.2)
+      faraday (>= 0.7.4, < 0.10)
+    i18n (0.7.0)
+    json (1.8.1)
+    method_source (0.8.2)
+    minitest (5.8.4)
+    multipart-post (1.2.0)
+    mysql2 (0.3.19)
+    pry (0.10.3)
+      coderay (~> 1.1.0)
+      method_source (~> 0.8.1)
+      slop (~> 3.4)
+    slop (3.6.0)
+    thread_safe (0.3.5)
+    tzinfo (1.2.2)
+      thread_safe (~> 0.1)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  disqus_api!
+  json (= 1.8.1)
+  mysql2
+  pry
+
+BUNDLED WITH
+   1.10.6
