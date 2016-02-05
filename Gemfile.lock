@@ -1,5 +1,5 @@
 PATH
-  remote: /Users/tim_kinnel/Development/ruby/disqus_api
+  remote: ../disqus_api
   specs:
     disqus_api (0.0.4)
       activesupport (>= 3.0.0)
