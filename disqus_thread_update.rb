@@ -1,4 +1,4 @@
-#!/Users/tim_kinnel/.rvm/rubies/ruby-2.2.1/bin/ruby
+#!/usr/local/bin/ruby
 require 'rubygems'
 require 'bundler/setup'
 
@@ -7,32 +7,39 @@ require 'json'
 require 'csv'
 require 'mysql2'
 require 'logger'
+require 'optparse'
 require 'pry'
 require './thread_database'
+require './runtime_options'
 
-# Settings
-BASE_DIRECTORY = "/Users/tim_kinnel/Projects/WGBH News/Disqus migration"
-MAPPING_FILE = "#{BASE_DIRECTORY}/Node-ID-Mappings.csv"
+options = RuntimeOptions.parse(ARGV)
 
-# SWITCHES
-WIPE = false
-ACTION = 'load_node_map' # [ load_node_map fetch_data ]
-ARGS = {}
+# Information array
+$info = {
+  :threads => {
+    :processed => 0,
+    :skipped => 0,
+    :failed => 0
+  },
+  :queries => 0
+}
+
 
 # Create logger
-logfile = "disqus-connection-#{Time.now.strftime('%Y%m%d_%H%M')}.log"
+if $stdout.isatty
+  logfile = STDOUT
+else
+  logfile = "disqus-connection-#{Time.now.strftime('%Y%m%d_%H%M')}.log"
+end
+
 $logger = Logger.new(logfile)
-$logger.info "Processing action: #{ACTION}"
+$logger.info "Running with options: #{options}"
 
 # Open database
-$db = ThreadDatabase.new(WIPE)
+$db = ThreadDatabase.new(options)
 
 # Method defs
 def save_threads(threads)
-  status = {
-    :processed => 0,
-    :failed => 0
-  }
   threads.each do |thread|
     thread_data = {
       'thread_id'           => thread['id'],
@@ -45,27 +52,27 @@ def save_threads(threads)
     
     # Insert only nodes, not users
     if /node/.match(thread_data['original_identifier'])
-      sql = "INSERT IGNORE INTO threads (#{thread_data.keys.join(',')}) VALUES (#{thread_data.values.map{ |v| "'#{v}'" }.join(',')});"
+      sql = "INSERT INTO threads (#{thread_data.keys.join(',')}) VALUES (#{thread_data.values.map{ |v| "'#{v}'" }.join(',')});"
   #                    ^-- Ignore duplicates (mysql proprietary)
-      unless $db.client.query(sql)
-        $logger.info "Failed: #{sql}"
-        status[:processed] += 1
-      else
-        status[:failed] += 1
+      begin
+        $db.client.query(sql)
+        $info[:threads][:processed] += 1
+      rescue Mysql2::Error => e
+        match = /Duplicate entry '(\d+)' for key 'PRIMARY'/.match(e.message)
+        if match
+          $logger.info "Skipping thread #{match[1]}"
+          $info[:threads][:skipped] += 1
+        else
+          $logger.debug e.message
+          $info[:threads][:failed] += 1
+        end
       end
     end
   end
-  status
 end
 
 # This is where the bulk of the work gets done.
-def fetch_data(args = {})
-
-  options = {
-    :limit => 10,
-  }
-
-  options.merge!(args)
+def fetch_data_from_disqus(options)
   
   DisqusApi.config = {
   # News migration
@@ -74,37 +81,46 @@ def fetch_data(args = {})
     access_token: '2f7fa7d65f204b33a1d86b56b855dcff'
   }
 
-  cursor = { :next => nil }
+  cursor_hash = { :hasNext => true }
   reset_time = 0
   processed = 0
   failed = 0
   
-  # while cursor[:hasNext]
-    begin
-      threads = DisqusApi.v3.forums.listThreads(forum: 'wgbhnews', order: 'asc', limit: options[:limit], cursor: cursor[:next] )
-      cursor = threads[:cursor]
-      reset_time = threads[:ratelimit_headers].nil? ? reset_time : threads[:ratelimit_headers]['x-ratelimit-reset']
-      status = save_threads(threads[:response])
-      processed += status[:processed]
-      failed    += status[:failed]
-      $logger.info "Processed: #{processed}    | Failed: #{failed}"
-    rescue DisqusApi::InvalidApiRequestError => e
-      # Abort unless it's a rate limit problem
-      unless (e.response['code'] == 13)
-        $logger.fatal "Program aborted with error: #{e.response.inspect}"
-        abort('Aborted with error.')  
-      end
-      
-      # Wait until the reset time to start querying again
-      wait_time = [(reset_time - Time.now.to_i) + 10, 0].max
-      $logger.info "Waiting #{wait_time/60} minutes until #{Time.at(reset_time).to_datetime}"
-      sleep(wait_time)
+  if options.full || !options.queries.nil?    # Do a while loop if doing multiple iterations
+    while cursor_hash[:hasNext] && ($info[:queries] < options.queries.to_i)
+      cursor_hash = make_query(cursor_hash, options.limit)
+      $info[:queries] += 1
+      sleep(10)                               # Wait a decent time so the API doesn't get overloaded
     end
-  # end
+  else                                         # Otherwise just do the query once
+    make_query(cursor_hash, limit)
+  end
 end
 
-def load_node_map(*args)
-  CSV.foreach(MAPPING_FILE) do |line|
+def make_query(cursor_hash, limit)
+  begin
+    threads = DisqusApi.v3.forums.listThreads(forum: 'wgbhnews', order: 'asc', limit: limit, cursor: cursor_hash[:next] )
+    cursor_hash = threads[:cursor]
+    reset_time = threads[:ratelimit_headers].nil? ? reset_time : threads[:ratelimit_headers]['x-ratelimit-reset']
+    save_threads(threads[:response])
+  rescue DisqusApi::InvalidApiRequestError => e
+    # Abort unless it's a rate limit problem
+    unless (e.response['code'] == 13)
+      $logger.fatal "Program aborted with error: #{e.response.inspect}"
+      $logger.info $info
+      abort('Aborted with error.')  
+    end
+    
+    # Wait until the reset time to start querying again
+    wait_time = [(reset_time - Time.now.to_i) + 10, 0].max
+    $logger.info "Waiting #{wait_time/60} minutes until #{Time.at(reset_time).to_datetime}"
+    sleep(wait_time)
+  end
+  cursor_hash
+end
+
+def load_node_map(options)
+  CSV.foreach(options.mapping_file) do |line|
     if /^\s*\d+\s*$/.match(line[0]) && /^\s*\d+\s*$/.match(line[0])
       sql = "INSERT IGNORE INTO node_mapping (old_node, new_node) VALUES ('#{line[0]}', '#{line[1]}');"
       $db.client.query(sql)
@@ -112,11 +128,18 @@ def load_node_map(*args)
   end    
 end 
 
+
 #============================================================
 
 
 # Execute
-send(ACTION, ARGS)
+unless options.action == 'setup_database'
+  send(options.action, options)
+else
+  logger.info 'Database tables have been set up but not loaded.'
+end
+
+$logger.info $info
 
 
 

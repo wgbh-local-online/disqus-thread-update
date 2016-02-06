@@ -1,5 +1,6 @@
-PATH
-  remote: ../disqus_api
+GIT
+  remote: https://github.com/tim-wgbh/disqus_api.git
+  revision: 9ce5592964c17e8ddad123268cf3f6cea1f6c000
   specs:
     disqus_api (0.0.4)
       activesupport (>= 3.0.0)

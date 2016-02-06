@@ -4,7 +4,7 @@ class ::ThreadDatabase
 
   attr_reader :client
 
-  def initialize(wipe = false)
+  def initialize(options)
     @client = Mysql2::Client.new(
       :host   => 'localhost',
       :username => "#{DATABASE}_user",
@@ -12,8 +12,10 @@ class ::ThreadDatabase
       :database => DATABASE
     )
     @tables = define_tables
-    drop_tables if wipe
-    install_tables
+    if options.wipe
+      drop_tables
+      install_tables
+    end
   end
   
   def drop_tables
@@ -21,15 +23,6 @@ class ::ThreadDatabase
       sql = "DROP TABLE IF EXISTS #{table[:name]}"
       @client.query(sql)
     end
-  end
-
-  
-  def needs_tables
-    existing_tables = []
-    @client.query("SHOW TABLES;").each do |row|
-      existing_tables << row
-    end
-    existing_tables.count != @tables.count 
   end
   
   def install_tables  
