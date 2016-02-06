@@ -87,7 +87,7 @@ def fetch_data_from_disqus(options)
   failed = 0
   
   if options.full || !options.queries.nil?    # Do a while loop if doing multiple iterations
-    while cursor_hash[:hasNext] && ($info[:queries] < options.queries.to_i)
+    while cursor_hash[:hasNext] && (options.full || ($info[:queries] < options.queries.to_i) )
       cursor_hash = make_query(cursor_hash, options.limit)
       $info[:queries] += 1
       sleep(10)                               # Wait a decent time so the API doesn't get overloaded
